@@ -1,71 +1,63 @@
 """
-IMAGE & VIDEO CLASSIFICATION WITH YOLOv8 NANO
+IMAGE, VIDEO, AND WEBCAM CLASSIFICATION WITH YOLOv8 NANO
 
-This script allows you to classify objects using the YOLOv8 Nano classification model.
-It supports both single image and video input. The classification results are shown
-in a blue rectangle with white text in the top-left corner of each image/frame.
+This script uses the YOLOv8 Nano classification model to perform object classification
+on images, video files, or live webcam input. Classification results are overlaid on the frame.
 
-If the model does not exist in the 'models/' folder, it is downloaded and moved
-there from Ultralytics' internal cache.
+Features:
+- Automatically downloads the model if not present
+- Supports saving video or webcam output with overlaid labels
+- Shows classification confidence scores
+
+Press 'Q' during video or webcam streaming to exit.
 """
 
 from ultralytics import YOLO
 import cv2
 import os
 import shutil
+import glob
+import numpy as np
 
 
 def load_model():
     """
     Loads the YOLOv8 Nano classification model.
 
-    - If the model already exists in the 'models/' folder, loads it from there.
-    - If not, calls YOLO to trigger download (which may download to root).
-    - Moves the downloaded model to 'models/'.
-    - Ensures no leftover model copies are in the root directory.
-
     Returns:
-        YOLO: The loaded YOLO model from the 'models/' directory.
-    """
-    import glob
+        YOLO: Loaded classification model.
 
+    Workflow:
+    - Checks if model is in 'models/' folder.
+    - If not, downloads it and moves to the folder.
+    """
     model_dir = "models"
     model_filename = "yolov8n-cls.pt"
     model_path = os.path.join(model_dir, model_filename)
     cwd_model_path = os.path.abspath(model_filename)
 
-    # Step 1: If the model already exists in models/, load directly
     if os.path.exists(model_path):
         print("Model already exists in models/ folder.")
         return YOLO(model_path)
 
-    # Step 2: If not, trigger YOLO to download it (likely to current dir or cache)
     print("Model not found in models/. Downloading with YOLO...")
     _ = YOLO(model_filename)
 
-    # Step 3: Check current directory first (Ultralytics often downloads here)
+    # First check if model landed in current directory
     if os.path.exists(cwd_model_path):
-        print(f"Found downloaded model in current directory: {cwd_model_path}")
         os.makedirs(model_dir, exist_ok=True)
         shutil.move(cwd_model_path, model_path)
-        print(f"Moved model to: {model_path}")
-
-    # Step 4: Else look in Ultralytics cache (~/.cache/ultralytics/**/)
     else:
+        # Else check the Ultralytics cache
         cache_root = os.path.expanduser("~/.cache/ultralytics")
         matching_files = list(glob.iglob(f"{cache_root}/**/{model_filename}", recursive=True))
-
         if matching_files:
-            print(f"Found downloaded model in cache: {matching_files[0]}")
             os.makedirs(model_dir, exist_ok=True)
             shutil.move(matching_files[0], model_path)
-            print(f"Moved model to: {model_path}")
         else:
             raise RuntimeError("Model was downloaded but not found in current dir or cache.")
 
-    # Step 5: Confirm and load from models/
     if os.path.exists(model_path):
-        print("Loading model from models/ folder...")
         return YOLO(model_path)
     else:
         raise RuntimeError("Model not found. Could not load or move it successfully.")
@@ -73,72 +65,65 @@ def load_model():
 
 def draw_classification_label(image, label):
     """
-    Draws a labeled blue rectangle with white text in the upper-left corner of an image.
+    Draws a classification label in the top-left corner of the image.
 
     Args:
-        image (np.array): The image or frame to annotate.
-        label (str): The classification result to display.
+        image (np.array): Image or frame to draw on.
+        label (str): Label text (e.g., "cat (0.95)").
     """
-    font = cv2.FONT_HERSHEY_SIMPLEX       # Font style for the text
-    font_scale = 0.8                      # Font size
-    font_thickness = 2                    # Thickness of the text
-    margin = 10                           # Padding from the top-left corner
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.8
+    font_thickness = 2
+    margin = 10
 
-    # Measure the size of the text so we can size the box around it
     (text_width, text_height), _ = cv2.getTextSize(label, font, font_scale, font_thickness)
 
-    # Draw a filled blue rectangle behind the label text
+    # Draw background rectangle
     cv2.rectangle(
         image,
         (margin - 5, margin - 5),
         (margin + text_width + 5, margin + text_height + 5),
-        (255, 0, 0),                      # Blue box (BGR color format)
-        thickness=-1                     # Filled rectangle
+        (255, 0, 0),  # Blue background
+        thickness=-1
     )
 
-    # Put white text on top of the blue rectangle
+    # Overlay white text
     cv2.putText(
         image,
         label,
         (margin, margin + text_height),
         font,
         font_scale,
-        (255, 255, 255),                 # White text
+        (255, 255, 255),
         font_thickness,
-        lineType=cv2.LINE_AA            # Anti-aliased line (smoother text)
+        lineType=cv2.LINE_AA
     )
 
 
 def classify_image(model, image_path):
     """
-    Loads and classifies a single image using the provided YOLO model.
-
-    - Reads the image from disk.
-    - Runs YOLO classification.
-    - Draws the result label on the image.
-    - Displays the image in a window.
+    Classifies a single image and displays the result.
 
     Args:
-        model (YOLO): A YOLO model instance.
+        model (YOLO): YOLOv8 model object.
         image_path (str): Path to the image file.
 
     Returns:
-        list: Classification results from the model.
+        list: YOLO classification results.
     """
-    image = cv2.imread(image_path)                  # Load the image
+    image = cv2.imread(image_path)
     if image is None:
         raise ValueError(f"Could not read image from {image_path}")
 
-    results = model(image)                          # Run classification
+    results = model(image)
 
-    # Draw label on the image
     for result in results:
-        class_name = result.names[result.probs.top1]        # Most likely class
-        confidence = result.probs.top1conf                  # Confidence score
-        label = f"{class_name} ({confidence:.2f})"          # Format label
-        draw_classification_label(image, label)             # Draw it
+        class_name = result.names[result.probs.top1]
+        confidence = result.probs.top1conf
+        label = f"{class_name} ({confidence:.2f})"
+        draw_classification_label(image, label)
 
-    # Display the image with the label
+    # Display result
     cv2.imshow("YOLOv8 Image Classification", image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
@@ -146,51 +131,71 @@ def classify_image(model, image_path):
     return results
 
 
-def classify_video(model, video_path):
+def classify_video(model, source, save_output=False, output_path="output_classified.mp4"):
     """
-    Classifies each frame of a video using YOLOv8 Nano.
-
-    - Opens the video file.
-    - Processes each frame with YOLO.
-    - Draws the predicted class + confidence on the frame.
-    - Displays the video in real-time.
+    Performs classification on video file or webcam stream frame-by-frame.
 
     Args:
-        model (YOLO): A YOLO model instance.
-        video_path (str): Path to the video file.
+        model (YOLO): YOLOv8 classification model.
+        source (str or int): Path to video file or webcam index (e.g., 0).
+        save_output (bool): Whether to save the output video.
+        output_path (str): Path to save the output video if enabled.
     """
-    cap = cv2.VideoCapture(video_path)           # Open the video
+    cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        raise ValueError(f"Could not open video from {video_path}")
+        raise ValueError(f"Could not open video source: {source}")
+
+    writer = None
+    if save_output:
+        # Set default FPS in case it's 0 (webcam issue)
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps == 0 or np.isnan(fps):
+            fps = 30
+
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # Ensure frame size is valid
+        if width == 0 or height == 0:
+            raise RuntimeError("Unable to get video frame dimensions.")
+
+        # Use mp4 codec for compatibility
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        print(f"Saving output to: {output_path}")
 
     while True:
-        ret, frame = cap.read()                  # Read one frame
+        ret, frame = cap.read()
         if not ret:
-            break                                # End of video
+            break
 
-        results = model(frame)                   # Classify this frame
+        results = model(frame)
         for result in results:
             class_name = result.names[result.probs.top1]
             confidence = result.probs.top1conf
             label = f"{class_name} ({confidence:.2f})"
             draw_classification_label(frame, label)
 
-        cv2.imshow("YOLOv8 Video Classification", frame)  # Show frame
+        cv2.imshow("YOLOv8 Video Classification", frame)
 
-        # Exit if 'q' is pressed
+        if save_output and writer:
+            writer.write(frame)
+
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()
+    if writer:
+        writer.release()
     cv2.destroyAllWindows()
 
 
 def show_results(results):
     """
-    Prints classification results to the console.
+    Prints the classification results to console.
 
     Args:
-        results (list): List of YOLO classification result objects.
+        results (list): YOLO result objects.
     """
     for result in results:
         class_name = result.names[result.probs.top1]
@@ -200,36 +205,52 @@ def show_results(results):
 
 def main():
     """
-    Main entry point.
+    Main entry point for the script.
 
-    - Loads the YOLOv8 Nano classification model.
-    - Asks the user for an image or video file path.
-    - Classifies the file accordingly.
+    - Loads YOLOv8 model.
+    - Prompts user to select input type.
+    - Handles classification accordingly.
     """
-    print("Loading YOLOv8 Nano model...")
-    model = load_model()                         # Load the model
+    print("Loading YOLOv8 Nano classification model...")
+    model = load_model()
 
-    file_path = input("Enter path to an image or video file: ").strip()
+    print("\nSelect input type:")
+    print("1 - Image file")
+    print("2 - Video file")
+    print("3 - Webcam (live only, no saving)")
 
-    # Check if the file exists
-    if not os.path.exists(file_path):
-        print("Error: File does not exist.")
-        return
+    choice = input("Your choice: ").strip()
 
-    # Determine file type from extension
-    ext = os.path.splitext(file_path)[-1].lower()
-    try:
-        if ext in ['.jpg', '.jpeg', '.png', '.bmp']:
-            print("Running image classification...")
-            results = classify_image(model, file_path)
-            show_results(results)
-        elif ext in ['.mp4', '.avi', '.mov', '.mkv']:
-            print("Running video classification...")
-            classify_video(model, file_path)
-        else:
-            print("Unsupported file type. Please use an image or video.")
-    except Exception as e:
-        print(f"An error occurred during classification: {e}")
+    if choice == '1':
+        # Image classification
+        path = input("Enter path to image: ").strip()
+        if not os.path.exists(path):
+            print("Error: File does not exist.")
+            return
+        results = classify_image(model, path)
+        show_results(results)
+
+    elif choice == '2':
+        # Video classification
+        path = input("Enter path to video: ").strip()
+        if not os.path.exists(path):
+            print("Error: File does not exist.")
+            return
+        save = input("Save output video? (y/n): ").strip().lower() == 'y'
+        output_path = "output_classified.mp4"
+        if save:
+            user_path = input("Enter output filename (or press enter to use default): ").strip()
+            if user_path:
+                output_path = user_path
+        classify_video(model, path, save_output=save, output_path=output_path)
+
+    elif choice == '3':
+        # Webcam (live only)
+        print("Running webcam classification (live only, not saving)...")
+        classify_video(model, 0, save_output=False)
+
+    else:
+        print("Invalid selection. Exiting.")
 
 
 if __name__ == "__main__":
