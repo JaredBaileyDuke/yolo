@@ -79,15 +79,45 @@ python src/use_models/segmentation.py
 
 ---
 
-## Train Neural Networks
+## 🧪 Train Neural Networks
 
-### Classification
+### 📌 Overview
+Train custom YOLOv8 models for classification, object detection, segmentation, pose estimation, or OBB using your own data. You can start with existing datasets or annotate your own from scratch.
 
-#### Overview
-Train custom YOLO models on your dataset by configuring the training parameters.
+---
 
-#### Run the Code
-Execute: 
-```bash
-python train.py --config config.yaml
-```
+### 🔍 Where to Get Training Data
+
+#### 🪐 Roboflow Universe
+Browse thousands of publicly available datasets on [Roboflow Universe](https://universe.roboflow.com/). You can download datasets in the YOLOv8-compatible format (select **YOLOv8** when exporting).
+
+Example steps:
+1. Go to [https://universe.roboflow.com](https://universe.roboflow.com)
+2. Search for a dataset (e.g., “birds”, “vehicles”, “medical”, etc.)
+3. Export the dataset in **YOLOv8** format
+4. Unzip the dataset into the `assets/` folder
+
+---
+
+#### ✍️ Annotate Your Own Images with CVAT
+
+If you prefer to label your own data:
+1. Go to [https://cvat.org](https://cvat.org) and create a free account.
+2. Upload your images and create an annotation task.
+3. Annotate using bounding boxes, polygons, keypoints, etc.
+4. Export the labeled dataset as **YOLO format**.
+5. Move the exported data to your `assets/` folder.
+
+CVAT supports:
+- Object detection
+- Segmentation
+- Pose/keypoints
+- OBB (via rotated boxes or polygons)
+
+---
+
+### 🚀 Train a Custom Model
+
+#### Step-by-Step (Google Colab Recommended)
+
+Use the provided Jupyter notebook for training in the cloud using GPUs on Google Colab.
