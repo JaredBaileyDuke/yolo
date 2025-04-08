@@ -84,10 +84,7 @@ python src/use_models/segmentation.py
 ### Classification
 
 #### Overview
-Train custom YOLO models on your dataset by configuring the training parameters.
+Train custom YOLO models on your dataset by configuring the training parameters. Training is performed on Google Colab for optimal performance and ease of use.
 
 #### Run the Code
-Execute: 
-```bash
-python train.py --config config.yaml
-```
+Open the `Train_Object_Detection_Model.ipynb` notebook in Google Colab, configure the parameters, and execute the cells step by step to train your model.

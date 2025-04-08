@@ -1,248 +1,280 @@
 """
-IMAGE & VIDEO SEGMENTATION WITH YOLOv8 NANO
+IMAGE, VIDEO, & WEBCAM SEGMENTATION WITH YOLOv8 NANO
 
-This script uses the YOLOv8 Nano segmentation model to identify objects and draw
-segmentation masks in real time for images and videos.
+This script uses the YOLOv8 Nano segmentation model to:
+- Identify and color objects in an image, video, or webcam stream.
+- Display object labels with custom colors.
+- Optionally save output for images and video.
+- Uses safe video codecs for compatibility.
 
-If the model does not exist in the 'models/' folder, it is downloaded and moved
-there from the current working directory or Ultralytics cache.
+Press 'Q' during webcam/video to quit.
 """
 
-from ultralytics import YOLO  # YOLOv8 model interface
-import cv2  # OpenCV for image and video processing
-import os  # File and directory operations
-import shutil  # File moving
-import glob  # File pattern searching
-import numpy as np  # Numerical operations
-from random import randint  # Random color generation
+from ultralytics import YOLO  # Load YOLOv8 models
+import cv2  # OpenCV for image/video processing
+import os  # File system ops
+import shutil  # Move downloaded models
+import glob  # Pattern matching for file search
+import numpy as np  # NumPy for masks
+from random import randint  # Random colors for classes
+
 
 def load_model():
     """
-    Loads the YOLOv8 Nano segmentation model from local path if available,
-    otherwise downloads it and places it in the 'models/' directory.
-    
+    Load the YOLOv8 Nano segmentation model.
+    Downloads the model if not found locally.
+
     Returns:
-        YOLO: The loaded YOLOv8 segmentation model.
+        YOLO: Loaded segmentation model.
     """
     model_dir = "models"
     model_filename = "yolov8n-seg.pt"
     model_path = os.path.join(model_dir, model_filename)
-    cwd_model_path = os.path.abspath(model_filename)
 
-    # Check if the model is already in the models directory
     if os.path.exists(model_path):
-        print("Model already exists in models/ folder.")
+        print("✅ Model loaded from models/")
         return YOLO(model_path)
 
-    # If not, download it using Ultralytics
-    print("Model not found in models/. Downloading with YOLO...")
-    _ = YOLO(model_filename)
+    print("📥 Model not found. Downloading using YOLO API...")
+    _ = YOLO(model_filename)  # Triggers download
 
-    # Move it from current directory if it appears there after download
-    if os.path.exists(cwd_model_path):
+    # Move model to 'models/' directory
+    if os.path.exists(model_filename):
         os.makedirs(model_dir, exist_ok=True)
-        shutil.move(cwd_model_path, model_path)
+        shutil.move(model_filename, model_path)
     else:
-        # If not in current dir, check Ultralytics cache
+        # Try to retrieve from cache
         cache_root = os.path.expanduser("~/.cache/ultralytics")
-        matching_files = list(glob.iglob(f"{cache_root}/**/{model_filename}", recursive=True))
-        if matching_files:
+        found = list(glob.iglob(f"{cache_root}/**/{model_filename}", recursive=True))
+        if found:
             os.makedirs(model_dir, exist_ok=True)
-            shutil.move(matching_files[0], model_path)
+            shutil.move(found[0], model_path)
         else:
-            raise RuntimeError("Model was downloaded but not found in current dir or cache.")
+            raise RuntimeError("❌ Model not found after download.")
 
-    # Final check and return
-    if os.path.exists(model_path):
-        return YOLO(model_path)
-    else:
-        raise RuntimeError("Model not found. Could not load or move it successfully.")
+    return YOLO(model_path)
+
 
 def get_color_map(names):
     """
-    Generates a consistent random BGR color for each class label.
+    Assign a unique random color for each class label.
 
     Args:
-        names (dict): Dictionary of class IDs to class names.
+        names (dict): Mapping of class index to class name.
 
     Returns:
-        dict: Mapping from class name to a random BGR color tuple.
+        dict: Class name to BGR color.
     """
-    return {
-        name: (randint(30, 255), randint(30, 255), randint(30, 255))
-        for name in names.values()
-    }
+    return {name: (randint(30, 255), randint(30, 255), randint(30, 255)) for name in names.values()}
+
 
 def apply_segmentation_overlay(image, result, color_map):
     """
-    Applies the segmentation masks on top of the image with corresponding class colors.
+    Overlay segmentation masks on an image.
 
     Args:
-        image (np.array): Original image frame.
-        result: YOLO result object with masks and labels.
-        color_map (dict): Mapping from class name to BGR color.
+        image (np.array): Original image.
+        result: YOLO result object.
+        color_map (dict): Class name to color.
 
     Returns:
-        np.array: Image with segmentation overlays.
-        list: Sorted list of detected class names.
+        np.array: Image with overlays.
+        list: List of detected class names.
         dict: Color map used.
     """
     overlay = image.copy()
     detected_classes = set()
 
-    # Get the masks and class IDs from YOLO result
-    mask_data = result.masks.data.cpu().numpy() if result.masks else []
+    # Retrieve masks and class IDs from result
+    masks = result.masks.data.cpu().numpy() if result.masks else []
     class_ids = result.boxes.cls.cpu().numpy().astype(int) if result.boxes.cls is not None else []
 
-    for i, mask in enumerate(mask_data):
+    for i, mask in enumerate(masks):
         class_id = class_ids[i] if i < len(class_ids) else 0
         class_name = result.names[class_id]
         color = color_map[class_name]
         detected_classes.add(class_name)
 
-        # Resize mask to image size and binarize it
-        mask_resized = cv2.resize(mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
-        binary_mask = (mask_resized > 0.5).astype(np.uint8)
+        # Resize mask to image size and threshold it
+        resized = cv2.resize(mask, (image.shape[1], image.shape[0]), interpolation=cv2.INTER_NEAREST)
+        binary = (resized > 0.5).astype(np.uint8)
 
-        # Create a color overlay from the mask
-        colored_mask = np.zeros_like(image, dtype=np.uint8)
-        colored_mask[:, :, 0] = binary_mask * color[0]
-        colored_mask[:, :, 1] = binary_mask * color[1]
-        colored_mask[:, :, 2] = binary_mask * color[2]
+        # Build color mask
+        color_mask = np.zeros_like(image, dtype=np.uint8)
+        for c in range(3):
+            color_mask[:, :, c] = binary * color[c]
 
-        # Blend colored mask with the image
-        mask_indices = binary_mask.astype(bool)
-        overlay[mask_indices] = cv2.addWeighted(
-            overlay[mask_indices].astype(np.uint8),
-            0.5,
-            colored_mask[mask_indices].astype(np.uint8),
-            0.5,
-            0,
-        )
+        # Apply color mask to overlay using transparency
+        mask_indices = binary.astype(bool)
+        overlay[mask_indices] = cv2.addWeighted(overlay[mask_indices], 0.5, color_mask[mask_indices], 0.5, 0)
 
     return overlay, sorted(detected_classes), color_map
 
+
 def draw_class_labels(image, class_names, color_map):
     """
-    Draws a stacked list of detected class labels with their colors on the image.
+    Draws a color-coded list of class names in the top-left.
 
     Args:
         image (np.array): The image to annotate.
-        class_names (list of str): Detected class labels.
-        color_map (dict): Mapping from class name to BGR color.
+        class_names (list): Sorted list of detected classes.
+        color_map (dict): Class name to BGR color.
     """
     font = cv2.FONT_HERSHEY_SIMPLEX
-    font_scale = 0.6
+    scale = 0.6
     thickness = 2
-    margin = 10
-    y_offset = margin
+    y_offset = 10
 
-    for class_name in class_names:
-        label = class_name
-        (w, h), _ = cv2.getTextSize(label, font, font_scale, thickness)
-        box_coords = ((margin - 5, y_offset - 5), (margin + w + 5, y_offset + h + 5))
+    for name in class_names:
+        (w, h), _ = cv2.getTextSize(name, font, scale, thickness)
+        cv2.rectangle(image, (5, y_offset - 5), (10 + w, y_offset + h + 5), color_map[name], -1)
+        cv2.putText(image, name, (10, y_offset + h), font, scale, (255, 255, 255), thickness)
+        y_offset += h + 10
 
-        # Draw colored background rectangle
-        cv2.rectangle(image, box_coords[0], box_coords[1], color_map[class_name], thickness=-1)
 
-        # Overlay white text label
-        cv2.putText(image, label, (margin, y_offset + h), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
-
-        y_offset += h + 10  # Update y-position for next label
-
-def segment_image(model, image_path):
+def segment_image(model, path, save_output=False, output_path="segmented_image.jpg"):
     """
-    Loads and segments a single image.
+    Segments a single image and optionally saves output.
 
     Args:
-        model (YOLO): YOLOv8 segmentation model.
-        image_path (str): Path to the image file.
+        model (YOLO): Loaded YOLOv8 segmentation model.
+        path (str): Image file path.
+        save_output (bool): Whether to save the output image.
+        output_path (str): Save path for the output image.
     """
-    image = cv2.imread(image_path)
+    image = cv2.imread(path)
     if image is None:
-        raise ValueError(f"Could not read image from {image_path}")
+        raise ValueError(f"❌ Could not read image: {path}")
 
     results = model(image)
-    if not results:
-        return
-
     result = results[0]
     color_map = get_color_map(result.names)
     overlay, class_names, _ = apply_segmentation_overlay(image, result, color_map)
     draw_class_labels(overlay, class_names, color_map)
 
-    # Display the result
+    # Show the result
     cv2.imshow("YOLOv8 Image Segmentation", overlay)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-def segment_video(model, video_path):
+    if save_output:
+        cv2.imwrite(output_path, overlay)
+        print(f"💾 Image saved to: {output_path}")
+
+
+def segment_video(model, source, save_output=False, output_path="segmented_video.mp4"):
     """
-    Runs segmentation on each frame of a video and displays it.
+    Segments a video file or webcam feed.
 
     Args:
         model (YOLO): YOLOv8 segmentation model.
-        video_path (str): Path to the video file.
+        source (str or int): File path or webcam index.
+        save_output (bool): Whether to save the video output.
+        output_path (str): Where to save the output video.
     """
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        raise ValueError(f"Could not open video from {video_path}")
+        raise ValueError(f"❌ Could not open source: {source}")
 
+    writer = None
+    frame_written = False
     color_map = None
+
+    # Setup writer if saving output
+    if save_output:
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        ext = os.path.splitext(output_path)[1].lower()
+        codec = 'avc1' if ext == '.mp4' else 'XVID'
+        fourcc = cv2.VideoWriter_fourcc(*codec)
+        writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        print(f"💾 Saving video to: {output_path}")
 
     while True:
         ret, frame = cap.read()
         if not ret:
-            break  # End of video
+            break
 
         results = model(frame)
-        if not results:
-            continue
-
         result = results[0]
 
-        # Create color map once based on detected classes
+        # Generate consistent colors
         if color_map is None:
             color_map = get_color_map(result.names)
 
         overlay, class_names, _ = apply_segmentation_overlay(frame, result, color_map)
         draw_class_labels(overlay, class_names, color_map)
 
-        cv2.imshow("YOLOv8 Video Segmentation", overlay)
+        # Show the result
+        cv2.imshow("YOLOv8 Segmentation - Video/Webcam", overlay)
 
-        # Exit if 'q' is pressed
+        if save_output and writer:
+            writer.write(overlay)
+            frame_written = True
+
         if cv2.waitKey(1) & 0xFF == ord('q'):
+            print("👋 Exiting...")
             break
 
     cap.release()
+    if writer:
+        writer.release()
+        if not frame_written:
+            print("⚠️ No frames written. Output file may be empty.")
     cv2.destroyAllWindows()
+
 
 def main():
     """
-    Main entry point of the script.
-    Prompts for a file, determines if it's an image or video,
-    and runs segmentation accordingly.
+    Command-line user interface:
+    - Select input type: image, video, webcam
+    - Choose to save image/video output
+    - Run segmentation accordingly
     """
-    print("Loading YOLOv8 Nano segmentation model...")
+    print("🔍 Loading YOLOv8 Nano segmentation model...")
     model = load_model()
 
-    file_path = input("Enter path to an image or video file: ").strip()
-    if not os.path.exists(file_path):
-        print("Error: File does not exist.")
-        return
+    print("\nChoose input type:")
+    print("1 - Image")
+    print("2 - Video")
+    print("3 - Webcam (live only, not saved)")
 
-    ext = os.path.splitext(file_path)[-1].lower()
-    try:
-        if ext in ['.jpg', '.jpeg', '.png', '.bmp']:
-            print("Running image segmentation...")
-            segment_image(model, file_path)
-        elif ext in ['.mp4', '.avi', '.mov', '.mkv']:
-            print("Running video segmentation...")
-            segment_video(model, file_path)
-        else:
-            print("Unsupported file type.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    choice = input("Your choice [1/2/3]: ").strip()
+
+    if choice == '1':
+        path = input("Enter image path: ").strip()
+        if not os.path.isfile(path):
+            print("❌ File not found.")
+            return
+        save = input("Save output image? (y/n): ").strip().lower() == 'y'
+        output_path = "segmented_image.jpg"
+        if save:
+            custom = input("Enter output filename (or press Enter for default): ").strip()
+            if custom:
+                output_path = custom
+        segment_image(model, path, save_output=save, output_path=output_path)
+
+    elif choice == '2':
+        path = input("Enter video path: ").strip()
+        if not os.path.isfile(path):
+            print("❌ File not found.")
+            return
+        save = input("Save output video? (y/n): ").strip().lower() == 'y'
+        output_path = "segmented_video.mp4"
+        if save:
+            custom = input("Enter output filename (or press Enter for default): ").strip()
+            if custom:
+                output_path = custom
+        segment_video(model, path, save_output=save, output_path=output_path)
+
+    elif choice == '3':
+        print("🎥 Running segmentation on live webcam (not saved)...")
+        segment_video(model, 0, save_output=False)
+
+    else:
+        print("❌ Invalid selection.")
+
 
 if __name__ == "__main__":
     main()
